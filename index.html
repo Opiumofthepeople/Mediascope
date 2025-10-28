@@ -1,0 +1,1239 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Дашборд кампаний SS25</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+</head>
+<body class="bg-gray-50">
+    <div id="app">
+        <div class="min-h-screen p-6 flex items-center justify-center">
+            <div class="max-w-2xl mx-auto text-center">
+                <h1 class="text-3xl font-bold text-gray-900 mb-8">ATL Mediascope статистика</h1>
+                
+                <div class="bg-white rounded-lg shadow p-8">
+                    <div class="mb-6">
+                        <svg class="mx-auto h-16 w-16 text-blue-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                        </svg>
+                    </div>
+                    
+                    <h2 class="text-xl font-semibold mb-4">Загрузка данных...</h2>
+                    <p class="text-gray-600 mb-6" id="statusText">Пожалуйста, подождите</p>
+                    
+                    <div class="flex items-center justify-center">
+                        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                    </div>
+
+                    <div id="errorMessage" class="hidden mt-6 p-4 bg-red-50 text-red-700 rounded-lg"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const GITHUB_DATA_URL = 'https://raw.githubusercontent.com/Opiumofthepeople/Mediascope/main/Mediascope_Reach_24_10_normalized_final_guthub.xlsx';
+
+        let appData = null;
+        let selectedCampaigns = [];
+        let activeTab = 'Города';
+
+window.addEventListener('DOMContentLoaded', function() {
+    loadFromGitHub();
+});
+
+async function loadFromGitHub() {
+    const statusText = document.getElementById('statusText');
+    statusText.textContent = 'Загрузка данных из GitHub...';
+    
+    try {
+        const response = await fetch(GITHUB_DATA_URL);
+        
+        if (!response.ok) {
+            throw new Error(`Ошибка загрузки: ${response.status} ${response.statusText}`);
+        }
+        
+        statusText.textContent = 'Обработка данных...';
+        const arrayBuffer = await response.arrayBuffer();
+        processExcelData(arrayBuffer);
+        
+    } catch (error) {
+        showError('Ошибка при загрузке данных из GitHub:\n\n' + error.message + 
+                  '\n\nВозможные причины:\n• Файл не найден в репозитории\n• Нет доступа к интернету\n• Неправильная ссылка');
+    }
+}
+
+function showError(message) {
+    const errorDiv = document.getElementById('errorMessage');
+    errorDiv.textContent = message;
+    errorDiv.classList.remove('hidden');
+    
+    document.getElementById('statusText').textContent = 'Произошла ошибка';
+}
+
+function processExcelData(arrayBuffer) {
+    try {
+        const workbook = XLSX.read(arrayBuffer);
+        const sheets = {};
+        
+        for (const sheetName of workbook.SheetNames) {
+            const sheet = workbook.Sheets[sheetName];
+            const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+            
+            if (jsonData.length > 0) {
+                const headers = jsonData[0];
+                const rows = jsonData.slice(1).filter(row => row.some(cell => cell !== null && cell !== ''));
+                
+                sheets[sheetName] = {
+                    headers: headers,
+                    data: rows.map(row => {
+                        const obj = {};
+                        headers.forEach((header, index) => {
+                            obj[header] = row[index];
+                        });
+                        return obj;
+                    })
+                };
+            }
+        }
+        
+        appData = sheets;
+        selectedCampaigns = [];
+        renderDashboard();
+    } catch (error) {
+        showError('Ошибка при обработке файла: ' + error.message);
+    }
+}
+
+function formatNumber(num, type) {
+    if (num === null || num === undefined || num === '' || num === '-') return '—';
+    
+    const value = typeof num === 'string' ? parseFloat(num) : num;
+    if (isNaN(value)) return '—';
+
+    if (type === 'percent') {
+        return (value * 100).toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + '%';
+    } else if (type === 'percent_int') {
+        return (value * 100).toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + '%';
+    } else if (type === 'percent4') {
+        return (value * 100).toLocaleString('ru-RU', { minimumFractionDigits: 4, maximumFractionDigits: 4 }) + '%';
+    } else if (type === 'currency') {
+        return value.toLocaleString('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    } else if (type === 'cpm') {
+        return value.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' ₽';
+    } else if (type === 'cptu') {
+        return value.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽';
+    } else if (type === 'frequency') {
+        return value.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    } else if (type === 'integer') {
+        return value.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    } else {
+        return value.toLocaleString('ru-RU');
+    }
+}
+
+function getConditionalColor(value, allValues, reverse = false) {
+    if (value === null || value === undefined || value === '' || value === '—') return '';
+    
+    const numValue = typeof value === 'string' ? parseFloat(value) : value;
+    if (isNaN(numValue)) return '';
+    
+    const validValues = allValues
+        .map(v => typeof v === 'string' ? parseFloat(v) : v)
+        .filter(v => !isNaN(v) && v !== null && v !== undefined);
+    
+    if (validValues.length === 0) return '';
+    
+    const min = Math.min(...validValues);
+    const max = Math.max(...validValues);
+    
+    if (min === max) return 'background-color: rgb(255, 250, 205);';
+    
+    let normalized = (numValue - min) / (max - min);
+    
+    if (reverse) {
+        normalized = 1 - normalized;
+    }
+    
+    const yellowR = 255, yellowG = 250, yellowB = 205;
+    const greenR = 144, greenG = 238, greenB = 144;
+    
+    const r = Math.round(yellowR + (greenR - yellowR) * normalized);
+    const g = Math.round(yellowG + (greenG - yellowG) * normalized);
+    const b = Math.round(yellowB + (greenB - yellowB) * normalized);
+    
+    return `background-color: rgb(${r}, ${g}, ${b});`;
+}
+
+function campaignMatches(rowCampaign, selectedCampaign) {
+    if (!rowCampaign || !selectedCampaign) return false;
+    
+    if (rowCampaign === selectedCampaign) return true;
+    
+    const normalize = (str) => str.toLowerCase().trim()
+        .replace(/[""]/g, '"')
+        .replace(/\s+/g, ' ');
+    
+    const normalizedRow = normalize(rowCampaign);
+    const normalizedSelected = normalize(selectedCampaign);
+    
+    if (normalizedRow === normalizedSelected) return true;
+    
+    if (normalizedRow.includes(normalizedSelected) || normalizedSelected.includes(normalizedRow)) {
+        return true;
+    }
+    
+    return false;
+}
+
+// Функция определения типа формата (видео или баннер)
+function isVideoFormat(format) {
+    if (!format) return false;
+    const formatLower = format.toLowerCase();
+    return formatLower.includes('видео') || formatLower.includes('video');
+}
+
+function renderDashboard() {
+    if (!appData) return;
+
+    const campaigns = appData.Total ? appData.Total.data.map(row => row['Кампания']).filter(Boolean) : [];
+
+    let html = `
+        <div class="min-h-screen p-6">
+            <div class="max-w-7xl mx-auto">
+                <div class="flex justify-between items-center mb-6">
+                    <h1 class="text-3xl font-bold text-gray-900">ATL Mediascope статистика</h1>
+                    <div class="text-sm text-gray-500">
+                        Данные из GitHub
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded-lg shadow p-6 mb-6">
+                    <h2 class="text-lg font-semibold mb-4">Выберите кампании для анализа</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+    `;
+
+    campaigns.forEach((campaign, idx) => {
+        const isSelected = selectedCampaigns.includes(campaign);
+        const campaignId = 'campaign_' + idx;
+        html += `
+            <label class="flex items-center p-3 border rounded cursor-pointer hover:bg-gray-50 ${isSelected ? 'bg-blue-50 border-blue-500' : 'border-gray-300'}">
+                <input type="checkbox" 
+                       id="${campaignId}"
+                       ${isSelected ? 'checked' : ''} 
+                       onchange="toggleCampaignById('${campaignId}')" 
+                       class="mr-3">
+                <span class="text-sm ${isSelected ? 'font-semibold text-blue-700' : ''}">${campaign}</span>
+            </label>
+        `;
+    });
+
+    html += `
+                    </div>
+                    <div class="flex justify-between items-center mt-4">
+                        <div class="text-sm text-gray-600">
+                            Выбрано: ${selectedCampaigns.length} из ${campaigns.length}
+                        </div>
+                        <div class="space-x-2">
+                            <button onclick="selectAllCampaigns()" class="px-4 py-2 bg-blue-500 text-white rounded text-sm">Выбрать все</button>
+                            <button onclick="clearCampaigns()" class="px-4 py-2 bg-gray-500 text-white rounded text-sm">Очистить</button>
+                        </div>
+                    </div>
+                </div>
+    `;
+
+    if (selectedCampaigns.length === 1) {
+        const campaign = appData.Total.data.find(row => row['Кампания'] === selectedCampaigns[0]);
+        if (campaign) {
+            html += renderSingleCampaign(campaign);
+        }
+    } else {
+        html += renderSummaryTable();
+    }
+
+    html += '</div></div>';
+    
+    document.getElementById('app').innerHTML = html;
+    
+    if (selectedCampaigns.length === 1 && activeTab === 'Площадки') {
+        setTimeout(() => createPlatformChart(), 100);
+    }
+}
+
+function toggleCampaignById(campaignId) {
+    const checkbox = document.getElementById(campaignId);
+    if (!checkbox) return;
+    
+    const label = checkbox.closest('label');
+    const campaignName = label.querySelector('span').textContent;
+    
+    const index = selectedCampaigns.indexOf(campaignName);
+    if (index > -1) {
+        selectedCampaigns.splice(index, 1);
+    } else {
+        selectedCampaigns.push(campaignName);
+    }
+    renderDashboard();
+}
+
+function selectAllCampaigns() {
+    selectedCampaigns = appData.Total.data.map(row => row['Кампания']).filter(Boolean);
+    renderDashboard();
+}
+
+function clearCampaigns() {
+    selectedCampaigns = [];
+    renderDashboard();
+}
+
+function renderSingleCampaign(campaign) {
+    const cards = [
+        {title: 'Даты проведения', value: campaign['Даты проведения'] || '—', color: 'blue'},
+        {title: 'Целевая аудитория', value: campaign['Целевая аудитория'] || '—', color: 'green', fullText: true},
+        {title: 'Бюджет замеряемых площадок', value: formatNumber(campaign['Бюджет замеряемых площадок'], 'currency'), color: 'yellow'},
+        {title: '% row 18+', value: formatNumber(campaign['% row, охват в людях 18+'], 'percent'), color: 'purple'},
+        {title: 'CPM', value: formatNumber(campaign['CPM'], 'cpm'), color: 'pink'},
+        {title: 'CPTu в людях', value: formatNumber(campaign['CPTu, в людях'], 'cptu'), color: 'indigo'},
+        {title: 'CPTu технический', value: formatNumber(campaign['CPTu, технический'], 'cptu'), color: 'teal'},
+        {title: 'Охват в людях', value: formatNumber(campaign['Охват в людях'], 'integer'), color: 'orange'},
+        {title: 'Показы', value: formatNumber(campaign['Показы'], 'integer'), color: 'red'},
+        {title: 'Технический охват', value: formatNumber(campaign['Технический охват'], 'integer'), color: 'gray'},
+        {title: 'Частота техническая', value: formatNumber(campaign['Частота, техническая'], 'frequency'), color: 'cyan'},
+        {title: 'Частота в людях', value: formatNumber(campaign['Частота, в людях'], 'frequency'), color: 'lime'},
+        {title: '% замеренных площадок', value: formatNumber(campaign['% замеренных площадок'], 'percent_int'), color: 'emerald'}
+    ];
+    
+    let html = `
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-6">${campaign['Кампания']} — Основные метрики</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+    `;
+    
+    cards.forEach(card => {
+        html += `
+            <div class="bg-${card.color}-50 p-4 rounded">
+                <div class="text-sm text-gray-600">${card.title}</div>
+                <div class="${card.fullText ? 'text-xs' : 'text-lg'} font-semibold ${card.fullText ? 'leading-tight' : ''}" ${card.fullText ? `title="${card.value}"` : ''}>${card.value}</div>
+            </div>
+        `;
+    });
+    
+    html += `
+            </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow">
+            <div class="border-b px-6">
+                <nav class="flex space-x-8">
+    `;
+    
+    ['Города', 'Возраст', 'Площадки', 'Без замера'].forEach(tab => {
+        const activeClass = activeTab === tab ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500';
+        html += `<button onclick="setActiveTab('${tab}')" class="py-4 border-b-2 font-medium text-sm ${activeClass}">${tab}</button>`;
+    });
+    
+    html += `
+                </nav>
+            </div>
+            <div class="p-6">${renderTabContent()}</div>
+        </div>
+    `;
+    
+    return html;
+}
+
+function renderSummaryTable() {
+    const filteredData = selectedCampaigns.length === 0 ? 
+        appData.Total.data : 
+        appData.Total.data.filter(row => selectedCampaigns.includes(row['Кампания']));
+
+    const allCPM = filteredData.map(r => r['CPM']);
+    const allRowPercent = filteredData.map(r => r['% row, охват в людях 18+']);
+    const allCPTu = filteredData.map(r => r['CPTu, в людях']);
+
+    let html = `
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold">${selectedCampaigns.length === 0 ? 'Все кампании' : `Выбранные кампании (${selectedCampaigns.length})`}</h2>
+                <button onclick="exportSummaryTable()" class="px-4 py-2 bg-green-500 text-white rounded text-sm">📊 Экспорт</button>
+            </div>
+            <div class="overflow-x-auto max-h-[600px] overflow-y-auto border rounded">
+                <table class="w-full text-sm">
+                    <thead class="sticky top-0 z-10">
+                        <tr class="bg-gray-50" style="height: 50px;">
+                            <th class="text-left p-2 border sticky left-0 bg-gray-50 z-20">Кампания</th>
+                            <th class="text-left p-2 border cursor-pointer hover:bg-gray-100" onclick="sortTotalTable('Даты проведения')">
+                                Даты проведения <span class="text-xs">▼▲</span>
+                            </th>
+                            <th class="text-left p-2 border" style="min-width: 350px; max-width: 450px;">Целевая аудитория</th>
+                            <th class="text-right p-2 border cursor-pointer hover:bg-gray-100" onclick="sortTotalTable('Бюджет замеряемых площадок')">
+                                Бюджет замеряемых площадок <span class="text-xs">▼▲</span>
+                            </th>
+                            <th class="text-right p-2 border" style="height: 50px;">% row, охват в людях 18+</th>
+                            <th class="text-right p-2 border" style="height: 50px;">CPM</th>
+                            <th class="text-right p-2 border" style="height: 50px;">CPTu, в людях</th>
+                            <th class="text-right p-2 border" style="height: 50px;">CPTu, технический</th>
+                            <th class="text-right p-2 border cursor-pointer hover:bg-gray-100" onclick="sortTotalTable('Охват в людях')" style="height: 50px;">
+                                Охват в людях <span class="text-xs">▼▲</span>
+                            </th>
+                            <th class="text-right p-2 border cursor-pointer hover:bg-gray-100" onclick="sortTotalTable('Показы')" style="height: 50px;">
+                                Показы <span class="text-xs">▼▲</span>
+                            </th>
+                            <th class="text-right p-2 border" style="height: 50px;">Технический охват</th>
+                            <th class="text-right p-2 border" style="height: 50px;">Частота, техническая</th>
+                            <th class="text-right p-2 border" style="height: 50px;">Частота, в людях</th>
+                            <th class="text-right p-2 border" style="height: 50px;">% замеренных площадок</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+    `;
+    
+    filteredData.forEach(row => {
+        const cpmStyle = getConditionalColor(row['CPM'], allCPM, true);
+        const rowPercentStyle = getConditionalColor(row['% row, охват в людях 18+'], allRowPercent, false);
+        const cptuStyle = getConditionalColor(row['CPTu, в людях'], allCPTu, true);
+        
+        html += `
+            <tr class="hover:bg-gray-50" style="height: 50px;">
+                <td class="p-2 border font-medium sticky left-0 bg-white">${row['Кампания']}</td>
+                <td class="p-2 border whitespace-nowrap">${row['Даты проведения'] || '—'}</td>
+                <td class="p-2 border text-sm" style="min-width: 350px; max-width: 450px;" title="${row['Целевая аудитория'] || '—'}">${row['Целевая аудитория'] || '—'}</td>
+                <td class="text-right p-2 border whitespace-nowrap">${formatNumber(row['Бюджет замеряемых площадок'], 'currency')}</td>
+                <td class="text-right p-2 border whitespace-nowrap" style="${rowPercentStyle}">${formatNumber(row['% row, охват в людях 18+'], 'percent')}</td>
+                <td class="text-right p-2 border whitespace-nowrap" style="${cpmStyle}">${formatNumber(row['CPM'], 'cpm')}</td>
+                <td class="text-right p-2 border whitespace-nowrap" style="${cptuStyle}">${formatNumber(row['CPTu, в людях'], 'cptu')}</td>
+                <td class="text-right p-2 border whitespace-nowrap">${formatNumber(row['CPTu, технический'], 'cptu')}</td>
+                <td class="text-right p-2 border whitespace-nowrap">${formatNumber(row['Охват в людях'], 'integer')}</td>
+                <td class="text-right p-2 border whitespace-nowrap">${formatNumber(row['Показы'], 'integer')}</td>
+                <td class="text-right p-2 border whitespace-nowrap">${formatNumber(row['Технический охват'], 'integer')}</td>
+                <td class="text-right p-2 border whitespace-nowrap">${formatNumber(row['Частота, техническая'], 'frequency')}</td>
+                <td class="text-right p-2 border whitespace-nowrap">${formatNumber(row['Частота, в людях'], 'frequency')}</td>
+                <td class="text-right p-2 border whitespace-nowrap">${formatNumber(row['% замеренных площадок'], 'percent_int')}</td>
+            </tr>
+        `;
+    });
+    
+    html += `
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+    return html;
+}
+
+function setActiveTab(tab) {
+    activeTab = tab;
+    renderDashboard();
+}
+
+function renderTabContent() {
+    if (!appData || selectedCampaigns.length !== 1) return 'Нет данных';
+
+    const selectedCampaign = selectedCampaigns[0];
+    const sheetName = activeTab === 'Без замера' ? 'Площадки' : activeTab;
+    const sheetData = appData[sheetName];
+    
+    if (!sheetData) {
+        return `<div class="text-gray-500">Нет данных для листа "${sheetName}"</div>`;
+    }
+
+    const filteredData = sheetData.data.filter(row => {
+        const rowCampaign = row['Кампания'];
+        return campaignMatches(rowCampaign, selectedCampaign);
+    });
+
+    if (filteredData.length === 0) {
+        return `<div class="text-gray-500">Нет данных для кампании "${selectedCampaign}"</div>`;
+    }
+
+    if (activeTab === 'Города' || activeTab === 'Возраст') {
+        return renderCityAgeTab(filteredData);
+    } else if (activeTab === 'Площадки') {
+        return renderPlatformsTab(filteredData);
+    } else if (activeTab === 'Без замера') {
+        return renderNoMeasurementTab(filteredData);
+    }
+    
+    return 'Нет данных';
+}
+
+function renderCityAgeTab(filteredData) {
+    const exportType = activeTab === 'Города' ? 'cities' : 'age';
+    
+    const standardAgeGroups = ['12-17', '18-24', '25-34', '35-44', '45-54', '55-64', '65+'];
+    
+    const dataForFormatting = activeTab === 'Города' ? 
+        filteredData : 
+        filteredData.filter(r => standardAgeGroups.includes(r['Группа']));
+    
+    const allReachCol = dataForFormatting.map(r => r['Reach col%']);
+    const allReachRow = dataForFormatting.map(r => r['Reach row%']);
+    
+    let html = `
+        <div class="mb-4">
+            <button onclick="exportTable('${exportType}')" class="px-4 py-2 bg-green-500 text-white rounded text-sm mr-2">📊 Экспорт</button>
+        </div>
+        
+        <!-- LAYOUT: ТАБЛИЦА СЛЕВА + ДИАГРАММА СПРАВА -->
+        <div class="flex gap-6">
+            <!-- ТАБЛИЦА -->
+            <div class="flex-1 overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="bg-gray-50">
+                            <th class="text-left p-2 border" style="height: 40px;">Группа</th>
+                            <th class="text-right p-2 border" style="height: 40px;">OTS</th>
+                            <th class="text-right p-2 border" style="height: 40px;">OTS col%</th>
+                            <th class="text-right p-2 border" style="height: 40px;">OTS row%</th>
+                            <th class="text-right p-2 border" style="height: 40px;">Reach</th>
+                            <th class="text-right p-2 border" style="height: 40px;">Frequency</th>
+                            <th class="text-right p-2 border" style="height: 40px;">Reach col%</th>
+                            <th class="text-right p-2 border" style="height: 40px;">Reach row%</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+    `;
+    
+    filteredData.forEach(row => {
+        const isTargetAudience = activeTab === 'Возраст' && !standardAgeGroups.includes(row['Группа']);
+        
+        const reachColStyle = isTargetAudience ? '' : getConditionalColor(row['Reach col%'], allReachCol, false);
+        const reachRowStyle = isTargetAudience ? '' : getConditionalColor(row['Reach row%'], allReachRow, false);
+        
+        html += `
+            <tr class="hover:bg-gray-50" style="height: 40px;">
+                <td class="p-2 border font-medium">${row['Группа'] || '—'}</td>
+                <td class="text-right p-2 border">${formatNumber(row['OTS'], 'integer')}</td>
+                <td class="text-right p-2 border">${formatNumber(row['OTS col%'], 'percent_int')}</td>
+                <td class="text-right p-2 border">${formatNumber(row['OTS row%'], 'percent4')}</td>
+                <td class="text-right p-2 border">${formatNumber(row['Reach'], 'integer')}</td>
+                <td class="text-right p-2 border">${formatNumber(row['Frequency'], 'frequency')}</td>
+                <td class="text-right p-2 border" style="${reachColStyle}">${formatNumber(row['Reach col%'], 'percent_int')}</td>
+                <td class="text-right p-2 border" style="${reachRowStyle}">${formatNumber(row['Reach row%'], 'percent')}</td>
+            </tr>
+        `;
+    });
+    
+    html += `
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- КРУГОВАЯ ДИАГРАММА СПРАВА -->
+            <div class="flex-shrink-0" style="width: 350px;">
+                <div class="bg-white rounded-lg shadow p-4 sticky top-4">
+                    <h3 class="text-sm font-semibold mb-3 text-center">Распределение охвата<br>(Reach col%)</h3>
+                    <div class="flex justify-center">
+                        <canvas id="pieChart" width="300" height="300"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Создаем диаграмму после отрисовки HTML
+    setTimeout(() => createPieChart(dataForFormatting), 100);
+    
+    return html;
+}
+
+function renderPlatformsTab(filteredData) {
+    const platformsWithMeasurement = filteredData.filter(row => {
+        if (row['Площадка'] === 'Total') return false;
+        const mediascopeReach = row['Охваты в людях (Mediascope)'];
+        const numericReach = parseFloat(mediascopeReach);
+        return !isNaN(numericReach) && mediascopeReach !== null && mediascopeReach !== '' && mediascopeReach !== undefined;
+    }).sort((a, b) => {
+        const reachA = parseFloat(a['Охваты в людях (Mediascope)']) || 0;
+        const reachB = parseFloat(b['Охваты в людях (Mediascope)']) || 0;
+        return reachB - reachA;  // СОРТИРОВКА ПО УБЫВАНИЮ ОХВАТА
+    });
+
+    const allCPM = platformsWithMeasurement.map(r => r['CPM']);
+    const allBudgetPercent = platformsWithMeasurement.map(r => r['% бюджет']);
+    const allShowPercent = platformsWithMeasurement.map(r => r['% Показы']);
+    const allColPercent = platformsWithMeasurement.map(r => r['% col, охват в людях']);
+    const allRowPercent = platformsWithMeasurement.map(r => r['% row, охват в людях 18+']);
+    const allCPTu = platformsWithMeasurement.map(r => r['CPTu, охват в людях']);
+            
+    let html = `
+        <div class="mb-6">
+            <h3 class="text-lg font-semibold mb-4">Охват в людях и CPTu по площадкам</h3>
+            <div class="bg-gray-50 p-4 rounded-lg">
+                <canvas id="platformChart" width="1500" height="500"></canvas>
+            </div>
+        </div>
+        <div class="mb-4">
+            <button onclick="exportTable('platforms')" class="px-4 py-2 bg-green-500 text-white rounded text-sm mr-2">📊 Экспорт</button>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="bg-gray-50">
+                        <th class="text-left p-3 border">Площадка</th>
+                        <th class="text-left p-3 border">Форматы</th>
+                        <th class="text-right p-3 border">Бюджет</th>
+                        <th class="text-right p-3 border">% бюджет</th>
+                        <th class="text-right p-3 border">CPM</th>
+                        <th class="text-right p-3 border">Показы</th>
+                        <th class="text-right p-3 border">% Показы</th>
+                        <th class="text-right p-3 border">Охват в людях (Mediascope)</th>
+                        <th class="text-right p-3 border">% col, охват в людях</th>
+                        <th class="text-right p-3 border">% row, охват в людях 18+</th>
+                        <th class="text-right p-3 border">CPTu, охват в людях</th>
+                        <th class="text-right p-3 border">Технический охват</th>
+                        <th class="text-right p-3 border">CPTu, тех. охват</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    platformsWithMeasurement.forEach(row => {
+        const cpmStyle = getConditionalColor(row['CPM'], allCPM, true);
+        const budgetPercentStyle = getConditionalColor(row['% бюджет'], allBudgetPercent, false);
+        const showPercentStyle = getConditionalColor(row['% Показы'], allShowPercent, false);
+        const colPercentStyle = getConditionalColor(row['% col, охват в людях'], allColPercent, false);
+        const rowPercentStyle = getConditionalColor(row['% row, охват в людях 18+'], allRowPercent, false);
+        const cptuStyle = getConditionalColor(row['CPTu, охват в людях'], allCPTu, true);
+        
+        // РАСЦВЕТКА СТРОК ПО ТИПУ ФОРМАТА
+        const isVideo = isVideoFormat(row['Форматы']);
+        const rowBgColor = isVideo ? 'rgba(96, 165, 250, 0.15)' : 'rgba(134, 239, 172, 0.15)';
+        
+        html += `
+            <tr class="hover:opacity-90" style="background-color: ${rowBgColor};">
+                <td class="p-3 border font-medium whitespace-nowrap">${row['Площадка'] || '—'}</td>
+                <td class="p-3 border text-xs">${row['Форматы'] || '—'}</td>
+                <td class="text-right p-3 border whitespace-nowrap">${formatNumber(row['Бюджет'], 'currency')}</td>
+                <td class="text-right p-3 border whitespace-nowrap" style="${budgetPercentStyle}">${formatNumber(row['% бюджет'], 'percent_int')}</td>
+                <td class="text-right p-3 border whitespace-nowrap" style="${cpmStyle}">${formatNumber(row['CPM'], 'cpm')}</td>
+                <td class="text-right p-3 border whitespace-nowrap">${formatNumber(row['Показы'], 'integer')}</td>
+                <td class="text-right p-3 border whitespace-nowrap" style="${showPercentStyle}">${formatNumber(row['% Показы'], 'percent_int')}</td>
+                <td class="text-right p-3 border whitespace-nowrap">${formatNumber(row['Охваты в людях (Mediascope)'], 'integer')}</td>
+                <td class="text-right p-3 border whitespace-nowrap" style="${colPercentStyle}">${formatNumber(row['% col, охват в людях'], 'percent_int')}</td>
+                <td class="text-right p-3 border whitespace-nowrap" style="${rowPercentStyle}">${formatNumber(row['% row, охват в людях 18+'], 'percent')}</td>
+                <td class="text-right p-3 border whitespace-nowrap" style="${cptuStyle}">${formatNumber(row['CPTu, охват в людях'], 'cptu')}</td>
+                <td class="text-right p-3 border whitespace-nowrap">${formatNumber(row['Технический охват'], 'integer')}</td>
+                <td class="text-right p-3 border whitespace-nowrap">${formatNumber(row['CPTu, тех. охват'], 'cptu')}</td>
+            </tr>
+        `;
+    });
+    
+    html += '</tbody></table></div>';
+    return html;
+}
+
+function renderNoMeasurementTab(filteredData) {
+    const platformsWithoutMeasurement = filteredData.filter(row => {
+        if (row['Площадка'] === 'Total') return false;
+        const mediascopeReach = row['Охваты в людях (Mediascope)'];
+        const numericReach = parseFloat(mediascopeReach);
+        return isNaN(numericReach) || mediascopeReach === null || mediascopeReach === '' || mediascopeReach === undefined;
+    }).sort((a, b) => {
+        const budgetA = parseFloat(a['Бюджет']) || 0;
+        const budgetB = parseFloat(b['Бюджет']) || 0;
+        return budgetB - budgetA;
+    });
+
+    if (platformsWithoutMeasurement.length === 0) {
+        return '<div class="text-gray-500">Все площадки имеют замер</div>';
+    }
+
+    let html = `
+        <div class="mb-4">
+            <button onclick="exportTable('no_measurement')" class="px-4 py-2 bg-green-500 text-white rounded text-sm mr-2">📊 Экспорт</button>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="bg-gray-50">
+                        <th class="text-left p-3 border">Площадка</th>
+                        <th class="text-left p-3 border">Форматы</th>
+                        <th class="text-right p-3 border">Бюджет</th>
+                        <th class="text-right p-3 border">% бюджет</th>
+                        <th class="text-right p-3 border">CPM</th>
+                        <th class="text-right p-3 border">Показы</th>
+                        <th class="text-right p-3 border">% Показы</th>
+                        <th class="text-right p-3 border">Технический охват</th>
+                        <th class="text-right p-3 border">CPTu, тех. охват</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    platformsWithoutMeasurement.forEach(row => {
+        html += `
+            <tr class="hover:bg-gray-50">
+                <td class="p-3 border font-medium whitespace-nowrap">${row['Площадка'] || '—'}</td>
+                <td class="p-3 border text-xs">${row['Форматы'] || '—'}</td>
+                <td class="text-right p-3 border whitespace-nowrap">${formatNumber(row['Бюджет'], 'currency')}</td>
+                <td class="text-right p-3 border whitespace-nowrap">${formatNumber(row['% бюджет'], 'percent_int')}</td>
+                <td class="text-right p-3 border whitespace-nowrap">${formatNumber(row['CPM'], 'cpm')}</td>
+                <td class="text-right p-3 border whitespace-nowrap">${formatNumber(row['Показы'], 'integer')}</td>
+                <td class="text-right p-3 border whitespace-nowrap">${formatNumber(row['% Показы'], 'percent_int')}</td>
+                <td class="text-right p-3 border whitespace-nowrap">${formatNumber(row['Технический охват'], 'integer')}</td>
+                <td class="text-right p-3 border whitespace-nowrap">${formatNumber(row['CPTu, тех. охват'], 'cptu')}</td>
+            </tr>
+        `;
+    });
+    
+    html += '</tbody></table></div>';
+    return html;
+}
+
+// ГРАФИК С СОРТИРОВКОЙ ПО УБЫВАНИЮ И CPTu ТОЛЬКО ТОЧКАМИ
+function createPlatformChart() {
+    const selectedCampaign = selectedCampaigns[0];
+    const sheetData = appData['Площадки'];
+    
+    if (!sheetData) return;
+
+    const filteredData = sheetData.data.filter(row => {
+        const rowCampaign = row['Кампания'];
+        if (!rowCampaign) return false;
+        if (row['Площадка'] === 'Total') return false;
+        const mediascopeReach = row['Охваты в людях (Mediascope)'];
+        const numericReach = parseFloat(mediascopeReach);
+        return campaignMatches(rowCampaign, selectedCampaign) &&
+               !isNaN(numericReach) && mediascopeReach !== null && mediascopeReach !== '';
+    }).sort((a, b) => {
+        // СОРТИРОВКА ПО УБЫВАНИЮ ОХВАТА В ЛЮДЯХ
+        const reachA = parseFloat(a['Охваты в людях (Mediascope)']) || 0;
+        const reachB = parseFloat(b['Охваты в людях (Mediascope)']) || 0;
+        return reachB - reachA;
+    }).slice(0, 15);
+
+    const canvas = document.getElementById('platformChart');
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    
+    if (window.platformChart instanceof Chart) {
+        window.platformChart.destroy();
+    }
+
+    // Определяем цвет столбцов по типу формата
+    const barColors = filteredData.map(row => {
+        const format = row['Форматы'] || '';
+        if (isVideoFormat(format)) {
+            return 'rgba(96, 165, 250, 0.7)'; // Синий для видео
+        } else {
+            return 'rgba(134, 239, 172, 0.7)'; // Зеленый для баннеров
+        }
+    });
+
+    window.platformChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: filteredData.map(row => row['Площадка']),
+            datasets: [
+                {
+                    type: 'bar',
+                    label: 'Охват в людях (Mediascope)',
+                    data: filteredData.map(row => parseFloat(row['Охваты в людях (Mediascope)']) || 0),
+                    backgroundColor: barColors,
+                    borderColor: barColors.map(color => color.replace('0.7', '1')),
+                    borderWidth: 1,
+                    yAxisID: 'y'
+                },
+                {
+                    type: 'line',
+                    label: 'CPTu, охват в людях (₽)',
+                    data: filteredData.map(row => parseFloat(row['CPTu, охват в людях']) || 0),
+                    borderColor: 'rgba(0, 0, 0, 0)',  // ПРОЗРАЧНАЯ ЛИНИЯ
+                    backgroundColor: 'rgba(239, 68, 68, 0)',
+                    borderWidth: 0,  // БЕЗ ЛИНИИ
+                    pointRadius: 6,  // ТОЛЬКО ТОЧКИ
+                    pointBackgroundColor: 'rgb(239, 68, 68)',
+                    pointBorderColor: 'rgb(239, 68, 68)',
+                    pointBorderWidth: 2,
+                    yAxisID: 'y1',
+                    showLine: false  // ОТКЛЮЧАЕМ ЛИНИЮ
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: {
+                        usePointStyle: true,
+                        generateLabels: function(chart) {
+                            return [
+                                {
+                                    text: 'Видео форматы',
+                                    fillStyle: 'rgba(96, 165, 250, 0.7)',
+                                    strokeStyle: 'rgba(96, 165, 250, 1)',
+                                    lineWidth: 1
+                                },
+                                {
+                                    text: 'Баннерные форматы',
+                                    fillStyle: 'rgba(134, 239, 172, 0.7)',
+                                    strokeStyle: 'rgba(134, 239, 172, 1)',
+                                    lineWidth: 1
+                                },
+                                {
+                                    text: 'CPTu, охват в людях (₽)',
+                                    fillStyle: 'rgb(239, 68, 68)',
+                                    strokeStyle: 'rgb(239, 68, 68)',
+                                    lineWidth: 0,
+                                    pointStyle: 'circle'
+                                }
+                            ];
+                        }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.dataset.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            if (context.parsed.y !== null) {
+                                if (context.datasetIndex === 0) {
+                                    label += context.parsed.y.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+                                } else {
+                                    label += context.parsed.y.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽';
+                                }
+                            }
+                            return label;
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    title: {
+                        display: true,
+                        text: 'Охват в людях'
+                    },
+                    ticks: {
+                        callback: function(value) {
+                            return value.toLocaleString('ru-RU');
+                        }
+                    }
+                },
+                y1: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    title: {
+                        display: true,
+                        text: 'CPTu (₽)'
+                    },
+                    grid: {
+                        drawOnChartArea: false
+                    },
+                    ticks: {
+                        callback: function(value) {
+                            return value.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽';
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// ФУНКЦИЯ СОЗДАНИЯ КРУГОВОЙ ДИАГРАММЫ ДЛЯ ВОЗРАСТА И ГОРОДОВ
+function createPieChart(data) {
+    const canvas = document.getElementById('pieChart');
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    
+    // Уничтожаем предыдущую диаграмму если она есть
+    if (window.pieChart instanceof Chart) {
+        window.pieChart.destroy();
+    }
+
+    // Подготовка данных для круговой диаграммы
+    const labels = data.map(row => row['Группа']);
+    
+    // ПРАВИЛЬНОЕ ИЗВЛЕЧЕНИЕ ПРОЦЕНТОВ
+    const values = data.map(row => {
+        let val = row['Reach col%'];
+        
+        // Если значение null/undefined/пустое
+        if (val === null || val === undefined || val === '') {
+            return 0;
+        }
+        
+        // Если это строка с %
+        if (typeof val === 'string') {
+            val = val.replace('%', '').replace(',', '.').trim();
+            const numVal = parseFloat(val);
+            return isNaN(numVal) ? 0 : numVal;
+        }
+        
+        // Если это число (вероятно в формате 0.08 для 8%)
+        const numVal = parseFloat(val);
+        if (isNaN(numVal)) return 0;
+        
+        // КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: если значение меньше 1, это десятичная дробь - умножаем на 100
+        if (numVal < 1) {
+            return numVal * 100;
+        }
+        
+        return numVal;
+    });
+    
+    // Генерация цветов для каждого сегмента
+    const colors = generatePieColors(data.length);
+
+    window.pieChart = new Chart(ctx, {
+        type: 'pie',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: values,
+                backgroundColor: colors.background,
+                borderColor: colors.border,
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'bottom',
+                    labels: {
+                        font: {
+                            size: 11
+                        },
+                        padding: 8,
+                        generateLabels: function(chart) {
+                            const data = chart.data;
+                            if (data.labels.length && data.datasets.length) {
+                                return data.labels.map((label, i) => {
+                                    const value = data.datasets[0].data[i];
+                                    return {
+                                        text: `${label}: ${value.toFixed(0)}%`,
+                                        fillStyle: data.datasets[0].backgroundColor[i],
+                                        strokeStyle: data.datasets[0].borderColor[i],
+                                        lineWidth: 2,
+                                        hidden: false,
+                                        index: i
+                                    };
+                                });
+                            }
+                            return [];
+                        }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const label = context.label || '';
+                            const value = context.parsed || 0;
+                            return `${label}: ${value.toFixed(0)}%`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Генерация цветов для круговой диаграммы
+function generatePieColors(count) {
+    const colorPalette = [
+        'rgba(59, 130, 246, 0.8)',   // Синий
+        'rgba(16, 185, 129, 0.8)',   // Зеленый
+        'rgba(251, 146, 60, 0.8)',   // Оранжевый
+        'rgba(239, 68, 68, 0.8)',    // Красный
+        'rgba(168, 85, 247, 0.8)',   // Фиолетовый
+        'rgba(236, 72, 153, 0.8)',   // Розовый
+        'rgba(245, 158, 11, 0.8)',   // Янтарный
+        'rgba(14, 165, 233, 0.8)',   // Голубой
+        'rgba(139, 92, 246, 0.8)',   // Индиго
+        'rgba(34, 197, 94, 0.8)',    // Лайм
+        'rgba(234, 179, 8, 0.8)',    // Желтый
+        'rgba(20, 184, 166, 0.8)',   // Бирюзовый
+    ];
+    
+    const background = [];
+    const border = [];
+    
+    for (let i = 0; i < count; i++) {
+        const color = colorPalette[i % colorPalette.length];
+        background.push(color);
+        border.push(color.replace('0.8', '1'));
+    }
+    
+    return { background, border };
+}
+
+function exportTable(tableType) {
+    if (!appData || selectedCampaigns.length !== 1) {
+        alert('Выберите одну кампанию для экспорта');
+        return;
+    }
+
+    const selectedCampaign = selectedCampaigns[0];
+    let exportData = [];
+    let fileName = '';
+
+    if (tableType === 'platforms') {
+        const sheetData = appData['Площадки'];
+        if (!sheetData) return;
+
+        const filteredData = sheetData.data.filter(row => {
+            const rowCampaign = row['Кампания'];
+            if (!rowCampaign) return false;
+            if (row['Площадка'] === 'Total') return false;
+            const mediascopeReach = row['Охваты в людях (Mediascope)'];
+            const numericReach = parseFloat(mediascopeReach);
+            return campaignMatches(rowCampaign, selectedCampaign) &&
+                   !isNaN(numericReach) && mediascopeReach !== null && mediascopeReach !== '';
+        });
+
+        exportData = filteredData.map(row => ({
+            'Площадка': row['Площадка'],
+            'Форматы': row['Форматы'],
+            'Бюджет': row['Бюджет'],
+            '% бюджет': row['% бюджет'],
+            'CPM': row['CPM'],
+            'Показы': row['Показы'],
+            '% Показы': row['% Показы'],
+            'Охват в людях (Mediascope)': row['Охваты в людях (Mediascope)'],
+            '% col, охват в людях': row['% col, охват в людях'],
+            '% row, охват в людях 18+': row['% row, охват в людях 18+'],
+            'CPTu, охват в людях': row['CPTu, охват в людях'],
+            'Технический охват': row['Технический охват'],
+            'CPTu, тех. охват': row['CPTu, тех. охват']
+        }));
+        fileName = selectedCampaign + '_Площадки.xlsx';
+
+    } else if (tableType === 'no_measurement') {
+        const sheetData = appData['Площадки'];
+        if (!sheetData) return;
+
+        const filteredData = sheetData.data.filter(row => {
+            const rowCampaign = row['Кампания'];
+            if (!rowCampaign) return false;
+            if (row['Площадка'] === 'Total') return false;
+            const mediascopeReach = row['Охваты в людях (Mediascope)'];
+            const numericReach = parseFloat(mediascopeReach);
+            return campaignMatches(rowCampaign, selectedCampaign) &&
+                   (isNaN(numericReach) || mediascopeReach === null || mediascopeReach === '');
+        });
+
+        exportData = filteredData.map(row => ({
+            'Площадка': row['Площадка'],
+            'Форматы': row['Форматы'],
+            'Бюджет': row['Бюджет'],
+            '% бюджет': row['% бюджет'],
+            'CPM': row['CPM'],
+            'Показы': row['Показы'],
+            '% Показы': row['% Показы'],
+            'Тех. охват': row['Технический охват'],
+            'CPTu тех.': row['CPTu, тех. охват']
+        }));
+        fileName = selectedCampaign + '_Площадки_без_замера.xlsx';
+
+    } else if (tableType === 'cities') {
+        const sheetData = appData['Города'];
+        if (!sheetData) return;
+
+        const filteredData = sheetData.data.filter(row => {
+            const rowCampaign = row['Кампания'];
+            return campaignMatches(rowCampaign, selectedCampaign);
+        });
+
+        exportData = filteredData.map(row => ({
+            'Группа': row['Группа'],
+            'OTS': row['OTS'],
+            'OTS col%': row['OTS col%'],
+            'OTS row%': row['OTS row%'],
+            'Reach': row['Reach'],
+            'Frequency': row['Frequency'],
+            'Reach col%': row['Reach col%'],
+            'Reach row%': row['Reach row%']
+        }));
+        fileName = selectedCampaign + '_Города.xlsx';
+
+    } else if (tableType === 'age') {
+        const sheetData = appData['Возраст'];
+        if (!sheetData) return;
+
+        const filteredData = sheetData.data.filter(row => {
+            const rowCampaign = row['Кампания'];
+            return campaignMatches(rowCampaign, selectedCampaign);
+        });
+
+        exportData = filteredData.map(row => ({
+            'Группа': row['Группа'],
+            'OTS': row['OTS'],
+            'OTS col%': row['OTS col%'],
+            'OTS row%': row['OTS row%'],
+            'Reach': row['Reach'],
+            'Frequency': row['Frequency'],
+            'Reach col%': row['Reach col%'],
+            'Reach row%': row['Reach row%']
+        }));
+        fileName = selectedCampaign + '_Возраст.xlsx';
+    }
+
+    if (exportData.length === 0) {
+        alert('Нет данных для экспорта');
+        return;
+    }
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Данные');
+    XLSX.writeFile(wb, fileName);
+}
+
+function exportSummaryTable() {
+    if (!appData || !appData.Total) {
+        alert('Нет данных для экспорта');
+        return;
+    }
+
+    const filteredData = selectedCampaigns.length === 0 ? 
+        appData.Total.data : 
+        appData.Total.data.filter(row => selectedCampaigns.includes(row['Кампания']));
+
+    const exportData = filteredData.map(row => ({
+        'Кампания': row['Кампания'],
+        'Даты проведения': row['Даты проведения'] || '',
+        'Целевая аудитория': row['Целевая аудитория'] || '',
+        'Бюджет замеряемых площадок': row['Бюджет замеряемых площадок'],
+        '% row, охват в людях 18+': row['% row, охват в людях 18+'],
+        'CPM': row['CPM'],
+        'CPTu, в людях': row['CPTu, в людях'],
+        'CPTu, технический': row['CPTu, технический'],
+        'Охват в людях': row['Охват в людях'],
+        'Показы': row['Показы'],
+        'Технический охват': row['Технический охват'],
+        'Частота, техническая': row['Частота, техническая'],
+        'Частота, в людях': row['Частота, в людях'],
+        '% замеренных площадок': row['% замеренных площадок']
+    }));
+
+    if (exportData.length === 0) {
+        alert('Нет данных для экспорта');
+        return;
+    }
+
+    const fileName = selectedCampaigns.length === 0 ? 
+        'Все_кампании_сводная.xlsx' : 
+        'Выбранные_кампании_сводная.xlsx';
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Сводная таблица');
+    XLSX.writeFile(wb, fileName);
+}
+
+let totalTableSortState = {};
+
+function sortTotalTable(column) {
+    if (!appData || !appData.Total) return;
+    
+    if (!totalTableSortState[column]) {
+        totalTableSortState[column] = 'desc';
+    } else if (totalTableSortState[column] === 'desc') {
+        totalTableSortState[column] = 'asc';
+    } else {
+        totalTableSortState[column] = 'desc';
+    }
+    
+    const direction = totalTableSortState[column];
+    
+    // Специальная обработка для дат
+    if (column === 'Даты проведения') {
+        appData.Total.data.sort((a, b) => {
+            const parseDateRange = (dateStr) => {
+                if (!dateStr) return { start: null, end: null };
+                
+                const parts = dateStr.split('-').map(s => s.trim());
+                
+                if (parts.length === 2) {
+                    const parseDate = (d) => {
+                        const [day, month, year] = d.split('.').map(Number);
+                        return new Date(year, month - 1, day);
+                    };
+                    
+                    return {
+                        start: parseDate(parts[0]),
+                        end: parseDate(parts[1])
+                    };
+                }
+                
+                return { start: null, end: null };
+            };
+            
+            const datesA = parseDateRange(a[column]);
+            const datesB = parseDateRange(b[column]);
+            
+            // Сортировка по дате окончания, затем по дате начала
+            if (datesA.end && datesB.end) {
+                if (direction === 'desc') {
+                    // От новых к старым
+                    if (datesA.end > datesB.end) return -1;
+                    if (datesA.end < datesB.end) return 1;
+                    
+                    if (datesA.start && datesB.start) {
+                        if (datesA.start > datesB.start) return -1;
+                        if (datesA.start < datesB.start) return 1;
+                    }
+                } else {
+                    // От старых к новым
+                    if (datesA.end < datesB.end) return -1;
+                    if (datesA.end > datesB.end) return 1;
+                    
+                    if (datesA.start && datesB.start) {
+                        if (datesA.start < datesB.start) return -1;
+                        if (datesA.start > datesB.start) return 1;
+                    }
+                }
+            }
+            
+            // Кампании без дат в конец
+            if (datesA.end && !datesB.end) return -1;
+            if (!datesA.end && datesB.end) return 1;
+            
+            return 0;
+        });
+    } else {
+        // Обычная числовая сортировка для остальных колонок
+        appData.Total.data.sort((a, b) => {
+            let valA = a[column];
+            let valB = b[column];
+            
+            if (typeof valA === 'string') valA = parseFloat(valA) || 0;
+            if (typeof valB === 'string') valB = parseFloat(valB) || 0;
+            
+            if (direction === 'desc') {
+                return valB - valA;
+            } else {
+                return valA - valB;
+            }
+        });
+    }
+    
+    renderDashboard();
+}
+    </script>
+</body>
+</html>
