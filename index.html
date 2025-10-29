@@ -48,7 +48,6 @@ window.addEventListener('DOMContentLoaded', function() {
 
 async function loadFromGitHub() {
     const statusText = document.getElementById('statusText');
-    statusText.textContent = 'Загрузка данных из GitHub...';
     
     try {
         const response = await fetch(GITHUB_DATA_URL);
