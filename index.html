@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Дашборд кампаний SS25</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 </head>
@@ -581,12 +582,15 @@ function renderPlatformsTab(filteredData) {
                         <th class="text-right p-3 border">CPM</th>
                         <th class="text-right p-3 border">Показы</th>
                         <th class="text-right p-3 border">% Показы</th>
-                        <th class="text-right p-3 border">Охват в людях (Mediascope)</th>
+                        <th class="text-right p-3 border">Технический охват</th>
+                        <th class="text-right p-3 border">Охваты в людях (Mediascope)</th>
                         <th class="text-right p-3 border">% col, охват в людях</th>
                         <th class="text-right p-3 border">% row, охват в людях 18+</th>
-                        <th class="text-right p-3 border">CPTu, охват в людях</th>
-                        <th class="text-right p-3 border">Технический охват</th>
                         <th class="text-right p-3 border">CPTu, тех. охват</th>
+                        <th class="text-right p-3 border">CPTu, охват в людях</th>
+                        <th class="text-right p-3 border">Частота контакта в людях</th>
+                        <th class="text-right p-3 border">Количество кук на человека</th>
+                        <th class="text-right p-3 border">Разница тех. охват vs охват в людях</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -613,12 +617,15 @@ function renderPlatformsTab(filteredData) {
                 <td class="text-right p-3 border whitespace-nowrap" style="${cpmStyle}">${formatNumber(row['CPM'], 'cpm')}</td>
                 <td class="text-right p-3 border whitespace-nowrap">${formatNumber(row['Показы'], 'integer')}</td>
                 <td class="text-right p-3 border whitespace-nowrap" style="${showPercentStyle}">${formatNumber(row['% Показы'], 'percent_int')}</td>
+                <td class="text-right p-3 border whitespace-nowrap">${formatNumber(row['Технический охват'], 'integer')}</td>
                 <td class="text-right p-3 border whitespace-nowrap">${formatNumber(row['Охваты в людях (Mediascope)'], 'integer')}</td>
                 <td class="text-right p-3 border whitespace-nowrap" style="${colPercentStyle}">${formatNumber(row['% col, охват в людях'], 'percent_int')}</td>
                 <td class="text-right p-3 border whitespace-nowrap" style="${rowPercentStyle}">${formatNumber(row['% row, охват в людях 18+'], 'percent')}</td>
-                <td class="text-right p-3 border whitespace-nowrap" style="${cptuStyle}">${formatNumber(row['CPTu, охват в людях'], 'cptu')}</td>
-                <td class="text-right p-3 border whitespace-nowrap">${formatNumber(row['Технический охват'], 'integer')}</td>
                 <td class="text-right p-3 border whitespace-nowrap">${formatNumber(row['CPTu, тех. охват'], 'cptu')}</td>
+                <td class="text-right p-3 border whitespace-nowrap" style="${cptuStyle}">${formatNumber(row['CPTu, охват в людях'], 'cptu')}</td>
+                <td class="text-right p-3 border whitespace-nowrap">${formatNumber(row['Частота контакта в людях'], 'frequency')}</td>
+                <td class="text-right p-3 border whitespace-nowrap">${formatNumber(row['Количество кук на человека'], 'frequency')}</td>
+                <td class="text-right p-3 border whitespace-nowrap">${formatNumber(row['Разница тех. охват vs охват в людях'], 'percent')}</td>
             </tr>
         `;
     });
@@ -1013,12 +1020,15 @@ function exportTable(tableType) {
             'CPM': row['CPM'],
             'Показы': row['Показы'],
             '% Показы': row['% Показы'],
+            'Технический охват': row['Технический охват'],
             'Охват в людях (Mediascope)': row['Охваты в людях (Mediascope)'],
             '% col, охват в людях': row['% col, охват в людях'],
             '% row, охват в людях 18+': row['% row, охват в людях 18+'],
+            'CPTu, тех. охват': row['CPTu, тех. охват'],
             'CPTu, охват в людях': row['CPTu, охват в людях'],
-            'Технический охват': row['Технический охват'],
-            'CPTu, тех. охват': row['CPTu, тех. охват']
+            'Частота контакта в людях': row['Частота контакта в людях'],
+            'Количество кук на человека': row['Количество кук на человека'],
+            'Разница тех. охват vs охват в людях': row['Разница тех. охват vs охват в людях']
         }));
         fileName = selectedCampaign + '_Площадки.xlsx';
 
@@ -1237,3 +1247,4 @@ function sortTotalTable(column) {
     </script>
 </body>
 </html>
+
